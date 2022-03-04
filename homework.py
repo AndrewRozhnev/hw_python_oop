@@ -1,77 +1,102 @@
+from typing import Optional
 import datetime as dt
 
 
+class Record:
+    """Создание записей."""
+
+    def __init__(self, amount: float, comment: str, date: Optional[str] = None) -> None:
+        """
+        :param amount: Денежная сумма или количество килокалорий.
+        :param comment: Комментарий, поясняющий, на что потрачены деньги или откуда взялись калории.
+        :param date: Дата создания записи. Формат даты для получения: '%d.%m.%Y'
+        """
+        self.amount = amount
+        self.comment = comment
+
+        if date is None:
+            # Задаём текущую дату в формате объекта datetime
+            self.date = dt.date.today()
+        else:
+            # или переводим переданную строку в объект класса datetime
+            str_to_datetime = dt.datetime.strptime(date, '%d.%m.%Y').date()
+            self.date = str_to_datetime
+
+
 class Calculator:
-    def __init__(self, limit):
+    """Родительский класс для обоих калькуляторов."""
+
+    def __init__(self, limit: float) -> None:
+        """:param limit: Дневной лимит трат/калорий, который задал пользователь."""
         self.limit = limit
+        # Список для хранения каких-либо записей (о еде или деньгах)
         self.records = []
 
-    def add_record(self, records):
-        self.records.append(records)
+    def add_record(self, new_record: Record) -> None:
+        """Сохраняем новую запись о расходах/приёме пищи."""
+        self.records.append(new_record)
 
-    def today_stats(self):
-        today = dt.date.today()
-        return sum(i.amount for i in self.records if i.date == today)
+    def get_today_stats(self) -> float:
+        """Считаем, сколько денег/(калорий) потрачено/(съедено) сегодня."""
+        return sum([record.amount
+                    for record in self.records
+                    if record.date == dt.date.today()])
 
-    def get_today_stats(self):
-        return self.today_stats()
+    def get_week_stats(self) -> float:
+        """Считаем, сколько денег/(калорий) потрачено/(получено) за последние 7 дней."""
+        date_week_ago = dt.date.today() - dt.timedelta(days=7)
+        return sum([record.amount
+                    for record in self.records
+                    if date_week_ago <= record.date <= dt.date.today()])
 
-    def get_today_spent(self):
+    def get_today_remained(self) -> float:
+        """Считаем, сколько денег/(калорий) можно ещё сегодня потратить/(съесть)."""
         return self.limit - self.get_today_stats()
-
-    def week_stats(self):
-        start_week = dt.date.today()
-        end_week = start_week - dt.timedelta(days=6)
-        return sum(i.amount for i in self.records
-                   if start_week >= i.date >= end_week)
-
-    def get_week_stats(self):
-        return self.week_stats()
-
-
-class CashCalculator(Calculator):
-
-    EURO_RATE = 70.0
-    USD_RATE = 60.0
-    RUB_RATE = 1
-    dict_rate = {'eur': (EURO_RATE, 'Euro'),
-                 'usd': (USD_RATE, 'USD'),
-                 'rub': (RUB_RATE, 'руб')}
-
-    def get_today_cash_remained(self, current):
-        today_spent = self.get_today_spent()
-        if today_spent == 0:
-            return 'Денег нет, держись'
-        course, rate = self.dict_rate[current]
-        remainder = abs(today_spent / course)
-        if today_spent > 0:
-            return f'На сегодня осталось {remainder:.2f} {rate}'
-        return f'Денег нет, держись: твой долг - {remainder:.2f} {rate}'
 
 
 class CaloriesCalculator(Calculator):
-    def get_calories_remained(self):
-        more_calories = self.get_today_spent()
-        if more_calories > 0:
-            return ('Сегодня можно съесть что-нибудь ещё,'
-                    f' но с общей калорийностью не более {more_calories} кКал')
-        return 'Хватит есть!'
+    """Калькулятор для подсчёта калорий"""
 
-
-class Record:
-    def __init__(self, amount, comment, date=None):
-        self.amount = amount
-        self.comment = comment
-        if date is None:
-            self.date = dt.date.today()
+    def get_calories_remained(self) -> str:
+        """Определяем, сколько ещё калорий можно/нужно получить сегодня."""
+        if self.get_today_remained() > 0:
+            return (f'Сегодня можно съесть что-нибудь ещё, '
+                    f'но с общей калорийностью не более {self.get_today_remained()} кКал')
         else:
-            self.date = dt.datetime.strptime(date, '%d.%m.%Y').date()
+            return 'Хватит есть!'
+
+
+class CashCalculator(Calculator):
+    """Калькулятор для подсчёта денег."""
+
+    # Курсы валют
+    RUB_RATE = 1.0
+    USD_RATE = 60.56
+    EURO_RATE = 75.89
+
+    def get_today_cash_remained(self, currency: str = 'rub') -> str:
+        """Определяем, сколько ещё денег можно потратить сегодня в рублях, долларах или евро.
+        :param currency: Код валюты, 'rub', 'usd' или 'eur'.
+        """
+
+        all_currency = {
+            'rub': ('руб', self.RUB_RATE),
+            'usd': ('USD', self.USD_RATE),
+            'eur': ('Euro', self.EURO_RATE)
+        }
+
+        currency_name, currency_rate = all_currency[currency]
+        today_remained_abs = round(abs(self.get_today_remained() / currency_rate), 2)
+
+        if self.get_today_remained() == 0:
+            return 'Денег нет, держись'
+        if self.get_today_remained() > 0:
+            return f'На сегодня осталось {today_remained_abs} {currency_name}'
+        else:
+            # Если мы залезли в долги, то get_today_remained вернёт отрицательное число
+            # это и будет наш долг (нам нужен модуль этого числа - abs)
+            return f'Денег нет, держись: твой долг - {today_remained_abs} {currency_name}'
 
 
 if __name__ == '__main__':
-    cash_calculator = CashCalculator(1000)
-    cash_calculator.add_record(Record(amount=145, comment='кофе'))
-    cash_calculator.add_record(Record(amount=300, comment='Серёге за обед'))
-    cash_calculator.add_record(Record(amount=3000, comment='бар в Танин др',
-                                      date='08.11.2019'))
-    print(cash_calculator.get_today_cash_remained('rub'))
+    pass
